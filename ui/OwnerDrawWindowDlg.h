@@ -7,6 +7,8 @@
 #include "TransparentMake.h"
 #include "ImageButton.h"
 
+#include <memory>
+
 // 最小化、最大化、还原、关闭按钮
 #define		WIDGIT_BUTTON_NUM					4
 
@@ -25,6 +27,8 @@
 #define QUIT_BTN_PATH_NOR			_T("img\\btn\\close.png")
 #define QUIT_BTN_PATH_HOVER			_T("img\\btn\\close_h.png")
 #define QUIT_BTN_PATH_DOWN			_T("img\\btn\\close_d.png")
+
+#define WINDOW_BACKGROUND			_T("img\\window\\back.png")
 
 #define MINI_BTN_ID					10000
 #define MAX_BTN_ID					10001
@@ -48,9 +52,16 @@ protected:
 	HICON m_hIcon;
 
 	// 创建几个BUTTON
-	CImageButton * m_pWidgitBtn[WIDGIT_BUTTON_NUM];
+	std::shared_ptr<CImageButton> m_pWidgitBtn[WIDGIT_BUTTON_NUM];
+	// 背景图片
+	std::shared_ptr<Image> m_pBackgroundImage;
+	// 桌面最大化位置
+	CRect m_rcRestoreArea;
 
+	// 初始按钮
 	int InitImageButton();
+	// 更新控件位置
+	void RefreshWidget();
 
 	// 绘制窗体
 	void DrawOwnerWindow();
@@ -68,11 +79,10 @@ public:
 	afx_msg void OnBnClickedMax();
 	afx_msg void OnBnClickedRestore();
 	afx_msg void OnBnClickedQuit();
-	afx_msg void OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* lpncsp);
 	afx_msg LRESULT OnNcHitTest(CPoint point);
 	LRESULT CalcWindowHitWhere();
 
-
+	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct);
 	afx_msg void OnMeasureItem(int nIDCtl, LPMEASUREITEMSTRUCT lpMeasureItemStruct);
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);

@@ -6,9 +6,9 @@
 #include "OwnerDrawWindowDlg.h"
 #include "afxdialogex.h"
 
-#ifdef _DEBUG
-#define new DEBUG_NEW
-#endif
+//#ifdef _DEBUG
+//#define new DEBUG_NEW
+//#endif
 
 //  拼接完整路径
 CString SplicFullFilePath(CString strExeModuleName);
@@ -20,12 +20,10 @@ IMPLEMENT_DYNAMIC(COwnerDrawWindowDlg, CDialogEx)
 COwnerDrawWindowDlg::COwnerDrawWindowDlg(UINT nIDTemplate, CWnd* pParent /*=NULL*/)
 	: CDialogEx(nIDTemplate, pParent)
 {
-
 	// 创建四个按钮
 	for (int i = 0; i < WIDGIT_BUTTON_NUM; i++)
 	{
-		m_pWidgitBtn[i] = new CImageButton();
-		VERIFY(m_pWidgitBtn);
+		m_pWidgitBtn[i] = nullptr;
 	}
 }
 
@@ -47,6 +45,7 @@ BEGIN_MESSAGE_MAP(COwnerDrawWindowDlg, CDialogEx)
 	ON_WM_DRAWITEM()
 	ON_WM_MEASUREITEM()
 	ON_WM_ERASEBKGND()
+	ON_WM_SIZE()
 END_MESSAGE_MAP()
 
 
@@ -66,6 +65,8 @@ BOOL COwnerDrawWindowDlg::OnInitDialog()
 	ModifyStyleEx(WS_EX_CLIENTEDGE, 0, 0);
 	ModifyStyle(WS_TILEDWINDOW, 0, 0);
 	SetWindowLong(m_hWnd, GWL_EXSTYLE, WS_EX_RIGHT);
+
+	m_pBackgroundImage.reset(new Image(SplicFullFilePath(WINDOW_BACKGROUND)));
 
 	InitImageButton();
 	Invalidate();
@@ -131,15 +132,29 @@ BOOL COwnerDrawWindowDlg::PreCreateWindow(CREATESTRUCT& cs)
 	return CDialogEx::PreCreateWindow(cs);
 }
 
-
+// 最大化
 void COwnerDrawWindowDlg::OnBnClickedMax()
 {
-	//ShowWindow(SW_SHOWMAXIMIZED);
+	// 保存位置
+	GetWindowRect(&m_rcRestoreArea);
+
+	CRect rcWorkArea;
+	// 获取工作区
+	SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWorkArea, 0);
+	MoveWindow(&rcWorkArea);
+
+	m_pWidgitBtn[1]->ShowWindow(false);
+	m_pWidgitBtn[2]->ShowWindow(true);
 }
 
+// 还原
 void COwnerDrawWindowDlg::OnBnClickedRestore()
 {
-	ShowWindow(SW_RESTORE);
+	//ShowWindow(SW_RESTORE);
+	MoveWindow(&m_rcRestoreArea);
+
+	m_pWidgitBtn[1]->ShowWindow(true);
+	m_pWidgitBtn[2]->ShowWindow(false);
 }
 
 void COwnerDrawWindowDlg::OnBnClickedQuit()
@@ -160,6 +175,12 @@ void COwnerDrawWindowDlg::OnBnClickedMini()
 // 初始按钮
 int COwnerDrawWindowDlg::InitImageButton()
 {
+	// 创建四个按钮
+	for (int i = 0; i < WIDGIT_BUTTON_NUM; i++)
+	{
+		m_pWidgitBtn[i].reset(new CImageButton());
+	}
+
 	m_pWidgitBtn[0]->SetButtonImage(SplicFullFilePath(MINI_BTN_PATH_NOR), SplicFullFilePath(MINI_BTN_PATH_HOVER), SplicFullFilePath(MINI_BTN_PATH_DOWN));
 	m_pWidgitBtn[1]->SetButtonImage(SplicFullFilePath(MAX_BTN_PATH_NOR), SplicFullFilePath(MAX_BTN_PATH_HOVER), SplicFullFilePath(MAX_BTN_PATH_DOWN));
 	m_pWidgitBtn[2]->SetButtonImage(SplicFullFilePath(RESTORE_BTN_PATH_NOR), SplicFullFilePath(RESTORE_BTN_PATH_HOVER), SplicFullFilePath(RESTORE_BTN_PATH_DOWN));
@@ -200,12 +221,43 @@ int COwnerDrawWindowDlg::InitImageButton()
 	return 0;
 }
 
-
-void COwnerDrawWindowDlg::OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* lpncsp)
+// 刷新控件
+void COwnerDrawWindowDlg::RefreshWidget()
 {
-	// TODO:  在此添加消息处理程序代码和/或调用默认值
+	RECT rect;
+	GetClientRect(&rect);
 
-	CDialogEx::OnNcCalcSize(bCalcValidRects, lpncsp);
+	CString str[] = { _T("_"), _T("u"), _T("U"), _T("*") };
+
+	int nId = MINI_BTN_ID;
+	// 创建按钮
+	for (int i = 0; i < WIDGIT_BUTTON_NUM; i++)
+	{
+		GetClientRect(&rect);
+		rect.left = rect.right - WINDOW_BTN_WIDTH * (WIDGIT_BUTTON_NUM - 1 - ((i >= 2 ? (i - 1) : i))) - 4;
+		rect.right = rect.left + WINDOW_BTN_WIDTH;
+		rect.top = 3;
+		rect.bottom = rect.top + WINDOW_BTN_HEIGHT;
+
+		if (NULL != m_pWidgitBtn[i])
+		{
+			m_pWidgitBtn[i]->MoveWindow(&rect, true);
+		}
+	}
+
+	Invalidate();
+
+	// 查找控件并刷新之
+	HWND hWndChild = ::GetWindow(m_hWnd, GW_CHILD);
+	// 遍历界面控件并刷新之
+	while (hWndChild)
+	{
+		CWnd* pw = CWnd::FromHandle(hWndChild);
+		int pid = pw->GetDlgCtrlID();
+		if (pw != NULL && pw->IsWindowVisible())
+			pw->Invalidate();
+		hWndChild = ::GetWindow(hWndChild, GW_HWNDNEXT);
+	}
 }
 
 // 绘制窗体
@@ -213,6 +265,28 @@ void COwnerDrawWindowDlg::DrawOwnerWindow()
 {
 	CDC * dc = GetDC();
 	dc->SetBkMode(TRANSPARENT);
+
+	HDC hMemDC;
+	HBITMAP	lBitmap;
+	RECT rc;
+	GetClientRect(&rc);
+	// 双缓冲拿一套
+	hMemDC = CreateCompatibleDC(dc->m_hDC);
+	lBitmap = CreateCompatibleBitmap(dc->m_hDC, rc.right, rc.bottom);
+	SelectObject(hMemDC, lBitmap);
+	SetBkMode(hMemDC, TRANSPARENT);
+	// GDI对象关联设备对象
+	Graphics* pImageGraphics;
+	pImageGraphics = Graphics::FromHDC(hMemDC);
+	VERIFY(pImageGraphics);
+
+	// 根据状态绘制图片
+	RectF rRect(static_cast<Gdiplus::REAL>(rc.left), static_cast<Gdiplus::REAL>(rc.top), static_cast<Gdiplus::REAL>(rc.right - rc.left), static_cast<Gdiplus::REAL>(rc.bottom - rc.top));
+	if (m_pBackgroundImage)
+		pImageGraphics->DrawImage(m_pBackgroundImage.get(), rRect, 0, 0, static_cast<Gdiplus::REAL>(m_pBackgroundImage->GetWidth()), static_cast<Gdiplus::REAL>(m_pBackgroundImage->GetHeight()), UnitPixel);
+
+	// 拷贝画布
+	//BitBlt(dc->m_hDC, 0, 0, rc.right, rc.bottom, hMemDC, 0, 0, SRCCOPY);
 
 	CRect rt;
 	CBrush bh(RGB(240, 240, 240));
@@ -229,20 +303,14 @@ void COwnerDrawWindowDlg::DrawOwnerWindow()
 	GetWindowText(str);
 	DrawText(dc->m_hDC, str, str.GetLength(), rt, DT_LEFT | DT_VCENTER);
 
+	// 删除对象
+	DeleteDC(hMemDC);
+	SelectObject(hMemDC, lBitmap);
+	DeleteObject(lBitmap);
+	delete pImageGraphics;
+
 	ReleaseDC(dc);
 	DeleteObject(ft);
-
-	//// 查找控件并刷新之
-	//HWND hWndChild = ::GetWindow(m_hWnd, GW_CHILD);
-	//// 遍历界面控件并刷新之
-	//while (hWndChild)
-	//{
-	//	CWnd* pw = CWnd::FromHandle(hWndChild);
-	//	int pid = pw->GetDlgCtrlID();
-	//	if (pw != NULL && pw->IsWindowVisible())
-	//		pw->Invalidate();
-	//	hWndChild = ::GetWindow(hWndChild, GW_HWNDNEXT);
-	//}
 }
 
 // 区域设定
@@ -251,10 +319,10 @@ LRESULT COwnerDrawWindowDlg::OnNcHitTest(CPoint point)
 	// 获取结果
 	LRESULT lResult = CalcWindowHitWhere();
 	// 重新计算位置
-	if (HTCAPTION == lResult/* || HTTOPLEFT == lResult || HTLEFT == lResult || HTBOTTOMLEFT == lResult || HTBOTTOM
+	if (HTCAPTION == lResult || HTTOPLEFT == lResult || HTLEFT == lResult || HTBOTTOMLEFT == lResult || HTBOTTOM
 		||
 		HTBOTTOMRIGHT == lResult || HTRIGHT == lResult || HTTOPRIGHT || HTTOP == lResult
-		*/)
+		)
 	{
 		return lResult;
 	}
@@ -270,106 +338,127 @@ LRESULT COwnerDrawWindowDlg::CalcWindowHitWhere()
 	GetCursorPos(&MovePoint);
 	ScreenToClient(&MovePoint);
 
-	//if (WindowIsFitScreen(m_hWnd))
-	//{
-	//	return HTCAPTION;
-	//}
-	//else
+	if (MovePoint.x >= 5
+		&& MovePoint.x <= ClientRect.right - 5
+		&& MovePoint.y >= 0
+		&& MovePoint.y <= TITLEBAR_HEIGHT
+		)
 	{
-		if (MovePoint.x >= 5
-			&& MovePoint.x <= ClientRect.right - 5
-			&& MovePoint.y >= 0
-			&& MovePoint.y <= TITLEBAR_HEIGHT
-			)
+		return HTCAPTION;
+	}
+
+
+	if (MovePoint.x >= 0
+		&& MovePoint.x <= 5
+
+		&& MovePoint.y >= 0
+		&& MovePoint.y <= 5
+		)
+	{
+		return HTTOPLEFT;
+	}
+	if (MovePoint.x >= 0
+		&& MovePoint.x <= 5
+		&& MovePoint.y >= 5
+		&& MovePoint.y <= ClientRect.bottom - 5
+		)
+	{
+		return HTLEFT;
+	}
+
+	if (MovePoint.x >= 0
+		&& MovePoint.x <= 5
+
+		&& MovePoint.y >= ClientRect.bottom - 5
+		&& MovePoint.y <= ClientRect.bottom
+		)
+	{
+		return HTBOTTOMLEFT;
+	}
+
+	if (MovePoint.x >= 5
+		&& MovePoint.x <= ClientRect.right - 5
+
+		&& MovePoint.y >= ClientRect.bottom - 5
+		&& MovePoint.y <= ClientRect.bottom
+		)
+	{
+		return HTBOTTOM;
+	}
+
+	if (MovePoint.x >= ClientRect.right - 5
+		&& MovePoint.x <= ClientRect.right
+
+		&& MovePoint.y >= ClientRect.bottom - 5
+		&& MovePoint.y <= ClientRect.bottom
+		)
+	{
+		return HTBOTTOMRIGHT;
+	}
+
+
+	if (MovePoint.x >= ClientRect.right - 5
+		&& MovePoint.x <= ClientRect.right
+
+		&& MovePoint.y >= 5
+		&& MovePoint.y <= ClientRect.bottom - 5
+		)
+	{
+		return HTRIGHT;
+	}
+
+	if (MovePoint.x >= ClientRect.right - 5
+		&& MovePoint.x <= ClientRect.right
+
+		&& MovePoint.y >= 0
+		&& MovePoint.y <= 5
+		)
+	{
+		return HTTOPRIGHT;
+	}
+
+	if (MovePoint.x >= 5
+		&& MovePoint.x <= ClientRect.right - 5
+
+		&& MovePoint.y >= 0
+		&& MovePoint.y <= 5
+		)
+	{
+		return HTTOP;
+	}
+	else
+	{
+		return HTCLIENT;
+	}
+
+	return HTCLIENT;
+}
+
+// 窗体变更
+void COwnerDrawWindowDlg::OnSize(UINT nType, int cx, int cy)
+{
+	static bool bMiniSize = false;
+	if (!bMiniSize)
+		bMiniSize = (SIZE_MINIMIZED == nType);
+
+	// 最小化是否按下
+	if (!bMiniSize)
+	{
+		// 非最小化下的状态变更
+		if (!IsZoomed())
 		{
-			return HTCAPTION;
-		}
-
-
-		if (MovePoint.x >= 0
-			&& MovePoint.x <= 5
-
-			&& MovePoint.y >= 0
-			&& MovePoint.y <= 5
-			)
-		{
-			return HTTOPLEFT;
-		}
-		if (MovePoint.x >= 0
-			&& MovePoint.x <= 5
-			&& MovePoint.y >= 5
-			&& MovePoint.y <= ClientRect.bottom - 5
-			)
-		{
-			return HTLEFT;
-		}
-
-		if (MovePoint.x >= 0
-			&& MovePoint.x <= 5
-
-			&& MovePoint.y >= ClientRect.bottom - 5
-			&& MovePoint.y <= ClientRect.bottom
-			)
-		{
-			return HTBOTTOMLEFT;
-		}
-
-		if (MovePoint.x >= 5
-			&& MovePoint.x <= ClientRect.right - 5
-
-			&& MovePoint.y >= ClientRect.bottom - 5
-			&& MovePoint.y <= ClientRect.bottom
-			)
-		{
-			return HTBOTTOM;
-		}
-
-		if (MovePoint.x >= ClientRect.right - 5
-			&& MovePoint.x <= ClientRect.right
-
-			&& MovePoint.y >= ClientRect.bottom - 5
-			&& MovePoint.y <= ClientRect.bottom
-			)
-		{
-			return HTBOTTOMRIGHT;
-		}
-
-
-		if (MovePoint.x >= ClientRect.right - 5
-			&& MovePoint.x <= ClientRect.right
-
-			&& MovePoint.y >= 5
-			&& MovePoint.y <= ClientRect.bottom - 5
-			)
-		{
-			return HTRIGHT;
-		}
-
-		if (MovePoint.x >= ClientRect.right - 5
-			&& MovePoint.x <= ClientRect.right
-
-			&& MovePoint.y >= 0
-			&& MovePoint.y <= 5
-			)
-		{
-			return HTTOPRIGHT;
-		}
-
-		if (MovePoint.x >= 5
-			&& MovePoint.x <= ClientRect.right - 5
-
-			&& MovePoint.y >= 0
-			&& MovePoint.y <= 5
-			)
-		{
-			return HTTOP;
-		}
-		else
-		{
-			return HTCLIENT;
+			// 修改按钮
+			if (nullptr != m_pWidgitBtn[2])
+				m_pWidgitBtn[2]->ShowWindow(false);
+			if (nullptr != m_pWidgitBtn[1])
+				m_pWidgitBtn[1]->ShowWindow(true);
 		}
 	}
-	return HTCLIENT;
+
+	bMiniSize = (SIZE_MINIMIZED == nType);
+
+	// 刷新控件位置
+	RefreshWidget();
 }
 
 //  拼接完整路径
@@ -414,10 +503,4 @@ BOOL COwnerDrawWindowDlg::OnEraseBkgnd(CDC* pDC)
 // 结束时清理对应内存
 COwnerDrawWindowDlg::~COwnerDrawWindowDlg()
 {
-	// 释放按钮
-	for (auto & btn : m_pWidgitBtn)
-	{
-		if (NULL != btn)
-			delete btn;
-	}
 }
